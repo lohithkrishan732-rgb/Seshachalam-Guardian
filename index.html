@@ -35,6 +35,24 @@
         <div class="rule-chip"><span>🚨</span> Rounds 6–8: CITES Stress Test</div>
       </div>
 
+      <div class="difficulty">
+        <span class="difficulty-label">Choose your difficulty</span>
+        <div class="difficulty-options" id="difficulty-options">
+          <button class="diff-chip" data-diff="easy">
+            <span class="diff-name">🌱 Easy</span>
+            <span class="diff-desc">Calmer neighbours · generous escrow</span>
+          </button>
+          <button class="diff-chip active" data-diff="normal">
+            <span class="diff-name">⚖️ Normal</span>
+            <span class="diff-desc">The intended balance</span>
+          </button>
+          <button class="diff-chip" data-diff="hard">
+            <span class="diff-name">🔥 Hard</span>
+            <span class="diff-desc">Greedy villages · thin escrow</span>
+          </button>
+        </div>
+      </div>
+
       <button id="btn-start" class="btn btn-primary btn-lg">Enter the Forest</button>
       <button id="btn-how" class="btn btn-ghost">How it works</button>
     </div>
@@ -85,9 +103,11 @@
         </div>
       </div>
       <button id="btn-restart" class="btn btn-ghost btn-sm">Restart</button>
+      <button id="btn-sound" class="btn btn-ghost btn-sm" title="Toggle sound" aria-label="Toggle sound">🔊</button>
     </header>
 
     <div class="phase-banner" id="phase-banner">
+      <span class="diff-pill" id="diff-pill">Normal</span>
       <span id="phase-banner-text">Phase 1 · Command &amp; Control State Ban</span>
     </div>
 

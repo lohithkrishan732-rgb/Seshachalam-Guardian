@@ -26,58 +26,65 @@
     REVEAL_AFTER: 520,
   };
 
-  /* ---------------- Bot personalities ---------------- */
+  /* ---------------- Bot personalities ----------------
+     Each returns a POACH probability (0..1); difficulty scales it. */
   const PERSONALITIES = {
     riskAverse: {
       key: "riskAverse", emoji: "🛖", tag: "Risk-Averse",
       blurb: "Fears the state. Guards unless starving.",
-      decide(ctx, self) {
+      prob(ctx, self) {
         const starving = self.cash <= 5;
         const desperate = self.cash <= 0;
         const bigBribe = ctx.bribe >= 40;
-        if (desperate) return Math.random() < 0.55;
-        if (starving && bigBribe) return Math.random() < 0.45;
-        if (ctx.escrowCollapsed && bigBribe) return Math.random() < 0.5;
-        return Math.random() < 0.05;
+        if (desperate) return 0.55;
+        if (starving && bigBribe) return 0.45;
+        if (ctx.escrowCollapsed && bigBribe) return 0.5;
+        return 0.05;
       },
     },
     hyperbolic: {
       key: "hyperbolic", emoji: "🏕️", tag: "Hyperbolic Discounter",
       blurb: "Wants cash NOW. Loves a fat bribe.",
-      decide(ctx, self) {
+      prob(ctx, self) {
         let p = ctx.bribe / 70;
         if (ctx.escrowActive && !ctx.escrowCollapsed) p -= 0.18;
         if (ctx.escrowCollapsed) p += 0.2;
         if (self.cash <= 0) p += 0.15;
-        return Math.random() < clamp(p, 0.05, 0.95);
+        return p;
       },
     },
     opportunistic: {
       key: "opportunistic", emoji: "🏚️", tag: "Opportunistic",
       blurb: "Cold calculator. Cheats when risk is low.",
-      decide(ctx, self) {
+      prob(ctx, self) {
         let p;
         if (!ctx.escrowActive) p = 0.55;
         else if (ctx.escrowCollapsed) p = 0.8;
         else p = 0.2 + (ctx.bribe - 20) / 120;
         if (ctx.lastRoundCheaters > 0 && ctx.escrowActive) p += 0.1;
-        return Math.random() < clamp(p, 0.05, 0.95);
+        return p;
       },
     },
     conditional: {
       key: "conditional", emoji: "⛺", tag: "Conditional Co-operator",
       blurb: "Mirrors the village. Cheats if others did.",
-      decide(ctx, self) {
-        if (!ctx.escrowActive) {
-          return ctx.lastRoundCheaters >= 2 ? Math.random() < 0.6 : Math.random() < 0.25;
-        }
-        if (ctx.escrowCollapsed && ctx.bribe >= 60) return Math.random() < 0.55;
-        if (ctx.lastRoundCheaters >= 2) return Math.random() < 0.5;
-        if (ctx.lastRoundCheaters === 1) return Math.random() < 0.2;
-        return Math.random() < 0.05;
+      prob(ctx, self) {
+        if (!ctx.escrowActive) return ctx.lastRoundCheaters >= 2 ? 0.6 : 0.25;
+        if (ctx.escrowCollapsed && ctx.bribe >= 60) return 0.55;
+        if (ctx.lastRoundCheaters >= 2) return 0.5;
+        if (ctx.lastRoundCheaters === 1) return 0.2;
+        return 0.05;
       },
     },
   };
+
+  /* ---------------- Difficulty presets ---------------- */
+  const DIFFICULTY = {
+    easy:   { label: "Easy",   aggro: 0.62, wage: 12, penalty: 3 },
+    normal: { label: "Normal", aggro: 1.0,  wage: 10, penalty: 4 },
+    hard:   { label: "Hard",   aggro: 1.4,  wage: 8,  penalty: 5 },
+  };
+  let selectedDifficulty = "normal";
 
   /* ---------------- Helpers ---------------- */
   const $ = (id) => document.getElementById(id);
@@ -103,6 +110,100 @@
     });
   }
 
+  /* ============================================================
+     AUDIO ENGINE — synthesized via Web Audio (no files needed)
+     ============================================================ */
+  const Sound = (function () {
+    let actx = null, master = null, muted = false, noiseBuf = null;
+    try { muted = localStorage.getItem("sg_muted") === "1"; } catch (e) {}
+
+    function ensure() {
+      if (!actx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        actx = new AC();
+        master = actx.createGain();
+        master.gain.value = 0.5;
+        master.connect(actx.destination);
+        // pre-build a white-noise buffer
+        const n = actx.sampleRate * 1.2;
+        noiseBuf = actx.createBuffer(1, n, actx.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+      }
+      if (actx.state === "suspended") actx.resume();
+      return true;
+    }
+    function tone(o) {
+      if (!actx) return;
+      const t0 = actx.currentTime + (o.delay || 0);
+      const osc = actx.createOscillator();
+      const g = actx.createGain();
+      osc.type = o.type || "sine";
+      osc.frequency.setValueAtTime(o.freq, t0);
+      if (o.slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.slideTo), t0 + o.dur);
+      const vol = o.vol == null ? 0.3 : o.vol;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + (o.attack || 0.006));
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+      osc.connect(g); g.connect(master);
+      osc.start(t0); osc.stop(t0 + o.dur + 0.02);
+    }
+    function noise(o) {
+      if (!actx) return;
+      const t0 = actx.currentTime + (o.delay || 0);
+      const src = actx.createBufferSource();
+      src.buffer = noiseBuf;
+      const filt = actx.createBiquadFilter();
+      filt.type = o.filterType || "lowpass";
+      filt.frequency.setValueAtTime(o.filter || 800, t0);
+      if (o.filterTo) filt.frequency.exponentialRampToValueAtTime(o.filterTo, t0 + o.dur);
+      const g = actx.createGain();
+      const vol = o.vol == null ? 0.3 : o.vol;
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+      src.connect(filt); filt.connect(g); g.connect(master);
+      src.start(t0); src.stop(t0 + o.dur + 0.02);
+    }
+
+    const LIB = {
+      click() { tone({ freq: 520, dur: 0.07, type: "triangle", vol: 0.16 }); },
+      coin() { tone({ freq: 880, dur: 0.09, type: "triangle", vol: 0.22 });
+               tone({ freq: 1320, dur: 0.12, type: "triangle", vol: 0.2, delay: 0.07 }); },
+      cash() { [784, 988, 1318].forEach((f, i) => tone({ freq: f, dur: 0.16, type: "triangle", vol: 0.2, delay: i * 0.06 })); },
+      wage() { tone({ freq: 587, dur: 0.16, type: "sine", vol: 0.16 });
+               tone({ freq: 880, dur: 0.16, type: "sine", vol: 0.12, delay: 0.05 }); },
+      treefall() { noise({ dur: 0.5, filter: 1600, filterTo: 200, vol: 0.32, filterType: "lowpass" });
+                   tone({ freq: 180, slideTo: 55, dur: 0.45, type: "sine", vol: 0.3 });
+                   noise({ dur: 0.08, filter: 3000, vol: 0.2, filterType: "highpass" }); }, // crack
+      alarm() { tone({ freq: 740, dur: 0.18, type: "sawtooth", vol: 0.16 });
+                tone({ freq: 560, dur: 0.22, type: "sawtooth", vol: 0.16, delay: 0.2 }); },
+      whoosh() { noise({ dur: 0.35, filter: 300, filterTo: 2200, vol: 0.14, filterType: "bandpass" }); },
+      warn() { tone({ freq: 320, slideTo: 160, dur: 0.5, type: "sawtooth", vol: 0.2 }); },
+      collapse() { tone({ freq: 140, slideTo: 36, dur: 1.4, type: "sine", vol: 0.4 });
+                   noise({ dur: 1.2, filter: 600, filterTo: 80, vol: 0.3, filterType: "lowpass" }); },
+      win() { [523, 659, 784, 1047].forEach((f, i) => tone({ freq: f, dur: 0.4, type: "triangle", vol: 0.22, delay: i * 0.13 })); },
+      lose() { [392, 330, 262].forEach((f, i) => tone({ freq: f, dur: 0.5, type: "sine", vol: 0.22, delay: i * 0.18 })); },
+    };
+
+    return {
+      unlock() { ensure(); },
+      isMuted() { return muted; },
+      toggle() {
+        muted = !muted;
+        try { localStorage.setItem("sg_muted", muted ? "1" : "0"); } catch (e) {}
+        if (!muted) ensure();
+        return muted;
+      },
+      play(name) {
+        if (muted) return;
+        if (!ensure()) return;
+        const fn = LIB[name];
+        if (fn) fn();
+      },
+    };
+  })();
+
   /* ---------------- Game state ---------------- */
   let S = null;
   let genCounter = 0;
@@ -127,6 +228,8 @@
       revealing: false, skip: false,
       villageEls: [],
       prevPhase: null,
+      diff: DIFFICULTY[selectedDifficulty] || DIFFICULTY.normal,
+      diffKey: selectedDifficulty,
       // visual
       trees: [], particles: [],
       forestVisual: CONFIG.START_FOREST, // smoothly animated number for HUD/meter
@@ -143,9 +246,11 @@
     if (!escrowActive) bribe = CONFIG.BAN_BRIBE;
     else if (inCites) bribe = CONFIG.CITES_BRIBE[r];
     else bribe = CONFIG.ESCROW_BRIBE;
+    const baseWage = s.diff ? s.diff.wage : CONFIG.ESCROW_WAGE;
+    const penalty = s.diff ? s.diff.penalty : CONFIG.PENALTY_PER_CHEATER;
     let wage = 0;
     if (escrowActive) {
-      wage = s.escrowCollapsed ? 0 : Math.max(0, CONFIG.ESCROW_WAGE - s.lastRoundCheaters * CONFIG.PENALTY_PER_CHEATER);
+      wage = s.escrowCollapsed ? 0 : Math.max(0, baseWage - s.lastRoundCheaters * penalty);
     }
     return {
       round: r, escrowActive, inCites, bribe, wage,
@@ -511,16 +616,21 @@
 
     // phase transition announcements
     if (S.prevPhase !== ctxR.phase || S.round === 1) {
-      if (S.round === CONFIG.ESCROW_START)
+      if (S.round === CONFIG.ESCROW_START) {
         phaseToast("🤝 Escrow Goes Live", "Guarding now pays a guaranteed wage. Cheaters drag everyone down.", "escrow");
-      else if (S.round === CONFIG.CITES_START)
+        Sound.play("whoosh");
+      } else if (S.round === CONFIG.CITES_START) {
         phaseToast("🚨 CITES Export Freeze", "Trade is locked. The escrow buffer is draining. The squeeze begins.", "crisis");
+        Sound.play("alarm");
+      }
     }
     if (ctxR.phase === "cites" && S.round > CONFIG.CITES_START) {
       phaseToast("💰 The Smuggler Doubles Down", "Bribe rises to +" + ctxR.bribe + " cash. Buffer: " + Math.max(0, S.citesBuffer) + " turns left.", "crisis");
+      Sound.play("alarm");
     }
     if (S.round === CONFIG.CITES_END + 1 && ctxR.phase === "escrow") {
       phaseToast("🕊️ Trade Routes Reopen", "The freeze lifts. Escrow can refill — if the forest survived.", "escrow");
+      Sound.play("whoosh");
     }
     S.prevPhase = ctxR.phase;
   }
@@ -561,10 +671,12 @@
      ============================================================ */
   function computeDecisions(playerPoached) {
     const ctxR = roundContext(S);
+    const aggro = S.diff ? S.diff.aggro : 1;
     const decisions = [{ v: S.villages[0], poach: playerPoached }];
     for (let i = 1; i < S.villages.length; i++) {
       const v = S.villages[i];
-      decisions.push({ v, poach: PERSONALITIES[v.personality].decide(ctxR, v) });
+      const p = clamp(PERSONALITIES[v.personality].prob(ctxR, v) * aggro, 0.02, 0.97);
+      decisions.push({ v, poach: Math.random() < p });
     }
     return { ctxR, decisions };
   }
@@ -604,10 +716,12 @@
         floatOverEl(el, "+" + ctxR.bribe, "cash");
         floatOverCanvas("−" + CONFIG.TREES_PER_POACH + " 🌲", "tree");
         shake(ctxR.inCites ? "lg" : "sm");
+        Sound.play("treefall");
+        if (d.v.isPlayer) Sound.play("cash");
       } else {
         setVillageStatus(el, "🛡️ Guarded", "guard");
         d.v.cash += gain;
-        if (gain > 0) floatOverEl(el, "+" + gain, "wage");
+        if (gain > 0) { floatOverEl(el, "+" + gain, "wage"); if (d.v.isPlayer) Sound.play("coin"); }
         else floatOverEl(el, "+0", "muted");
       }
       // update that village's cash text
@@ -635,6 +749,7 @@
         S.escrowCollapsed = true;
         bufferNote = "The emergency escrow buffer is exhausted — the legal safety net is gone.";
         phaseToast("🪙 Escrow Buffer Empty", "No safety net left. Guarding now pays nothing.", "crisis");
+        Sound.play("warn");
       }
     }
     S.lastRoundCheaters = cheaters;
@@ -672,8 +787,10 @@
       : '<span class="pos">The whole village held the line. No trees lost.</span> ';
     if (ctxR.escrowActive && !ctxR.escrowCollapsed) {
       if (cheaters > 0) {
-        const cut = cheaters * CONFIG.PENALTY_PER_CHEATER;
-        html += "The DNA ledger flagged the illicit timber. <strong>Next round's escrow wage is cut by " + cut + " (to " + Math.max(0, CONFIG.ESCROW_WAGE - cut) + ").</strong> ";
+        const penalty = S.diff ? S.diff.penalty : CONFIG.PENALTY_PER_CHEATER;
+        const baseWage = S.diff ? S.diff.wage : CONFIG.ESCROW_WAGE;
+        const cut = cheaters * penalty;
+        html += "The DNA ledger flagged the illicit timber. <strong>Next round's escrow wage is cut by " + cut + " (to " + Math.max(0, baseWage - cut) + ").</strong> ";
       } else html += "Clean ledger — full escrow wage restored next round. ";
     }
     if (bufferNote) html += '<br><span class="neg">⚠️ ' + bufferNote + "</span>";
@@ -702,6 +819,11 @@
     if (fxLayer) fxLayer.innerHTML = "";
     initTrees();
     S.forestVisual = CONFIG.START_FOREST;
+    // difficulty pill
+    const pill = $("diff-pill");
+    if (pill) { pill.textContent = S.diff.label; pill.className = "diff-pill " + S.diffKey; }
+    Sound.unlock();
+    Sound.play("whoosh");
     show("screen-game");
     renderRoundUI();
     setDecisionEnabled(true);
@@ -759,6 +881,7 @@
       statBox(S.history.reduce((a, h) => a + h.treesLost, 0), "Total Trees Felled");
 
     show("screen-over");
+    Sound.play(survived && card.classList.contains("win") ? "win" : "lose");
   }
 
   function statBox(val, lbl) {
@@ -772,14 +895,34 @@
 
   /* ---------------- Wiring ---------------- */
   function init() {
-    $("btn-start").addEventListener("click", startGame);
+    $("btn-start").addEventListener("click", () => { Sound.unlock(); startGame(); });
     $("btn-playagain").addEventListener("click", startGame);
     $("btn-restart").addEventListener("click", () => {
       if (confirm("Restart the game? Progress will be lost.")) startGame();
     });
     $("btn-guard").addEventListener("click", () => onChoice(false));
     $("btn-poach").addEventListener("click", () => onChoice(true));
-    $("btn-next").addEventListener("click", nextRound);
+    $("btn-next").addEventListener("click", () => { Sound.play("click"); nextRound(); });
+
+    // difficulty selector (intro screen)
+    document.querySelectorAll("#difficulty-options .diff-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        selectedDifficulty = chip.getAttribute("data-diff");
+        document.querySelectorAll("#difficulty-options .diff-chip").forEach((c) => c.classList.remove("active"));
+        chip.classList.add("active");
+        Sound.unlock(); Sound.play("click");
+      });
+    });
+
+    // sound toggle
+    const sbtn = $("btn-sound");
+    function refreshSound() {
+      const m = Sound.isMuted();
+      sbtn.textContent = m ? "🔇" : "🔊";
+      sbtn.classList.toggle("muted", m);
+    }
+    refreshSound();
+    sbtn.addEventListener("click", () => { Sound.toggle(); refreshSound(); if (!Sound.isMuted()) Sound.play("click"); });
 
     // click anywhere during a reveal to fast-forward it (but not the click that starts the round)
     document.addEventListener("click", (e) => {
@@ -797,12 +940,13 @@
     document.addEventListener("keydown", (e) => {
       if (!$("screen-game").classList.contains("active")) return;
       if (!$("resolution").hidden) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nextRound(); }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); Sound.play("click"); nextRound(); }
       } else if (S && S.revealing) {
         S.skip = true;
       } else {
         if (e.key.toLowerCase() === "g") onChoice(false);
         if (e.key.toLowerCase() === "p") onChoice(true);
+        if (e.key.toLowerCase() === "m") { Sound.toggle(); refreshSound(); }
       }
     });
 
