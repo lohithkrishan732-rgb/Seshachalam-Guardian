@@ -530,3 +530,32 @@ h1, h2, h3 { margin: 0; }
 .lb-list .lb-empty::before { content: ""; counter-increment: none; min-width: 0; }
 .lb-diff { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--ink-dim); }
 .lb-diff.easy { color: var(--green); } .lb-diff.hard { color: var(--danger-soft); }
+
+
+/* ============================================================
+   MORE DYNAMIC — ambient background canvas, reveal reactions
+   ============================================================ */
+#ambient-canvas {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  z-index: 0; pointer-events: none;
+}
+.screen { position: relative; z-index: 1; }
+
+/* village emoji reactions on reveal */
+.village .v-emoji { display: inline-block; transition: transform 0.2s; }
+.village.react-poach .v-emoji { animation: reactPoach 0.55s ease; }
+.village.react-guard .v-emoji { animation: reactGuard 0.55s ease; }
+@keyframes reactPoach {
+  0% { transform: scale(1) rotate(0); }
+  30% { transform: scale(1.35) rotate(-12deg); }
+  60% { transform: scale(1.1) rotate(10deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes reactGuard {
+  0% { transform: scale(1); } 40% { transform: scale(1.25) translateY(-3px); } 100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #ambient-canvas { display: none; }
+  .village.react-poach .v-emoji, .village.react-guard .v-emoji { animation: none !important; }
+}
