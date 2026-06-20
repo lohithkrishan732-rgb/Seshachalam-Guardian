@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seshachalam Guardian — A Conservation Game</title>
+  <meta name="description" content="An interactive game-theoretic simulation of red sandalwood conservation: cooperate, defect, and survive the CITES stress test." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌲</text></svg>" />
+</head>
+<body>
+  <!-- ====================== TITLE / INTRO SCREEN ====================== -->
+  <section id="screen-intro" class="screen active">
+    <div class="intro-card">
+      <div class="intro-emblem">🌲🛡️</div>
+      <h1 class="title">Seshachalam Guardian</h1>
+      <p class="subtitle">A game-theoretic simulation of the political economy of conservation</p>
+
+      <div class="intro-body">
+        <p>You are <strong>Village 1</strong>, a forest-fringe VSS cooperative on the edge of the
+        Seshachalam hills. Together with four neighbouring villages you share a single living
+        treasury: <strong>100 Red Sandalwood trees</strong>.</p>
+        <p>A smuggler offers you cash to look the other way. The state offers a ban it cannot enforce.
+        Every round you choose: <strong>Guard</strong> the forest, or <strong>Poach</strong> for quick cash.
+        If the forest hits <strong>zero</strong>, everyone loses.</p>
+        <p class="muted">Can you survive the <strong>CITES Export Freeze</strong> without breaking the commons?</p>
+      </div>
+
+      <div class="intro-rules">
+        <div class="rule-chip"><span>🏛️</span> Rounds 1–3: State Ban</div>
+        <div class="rule-chip"><span>🤝</span> Rounds 4–10: Pre-Funded Escrow</div>
+        <div class="rule-chip"><span>🚨</span> Rounds 6–8: CITES Stress Test</div>
+      </div>
+
+      <button id="btn-start" class="btn btn-primary btn-lg">Enter the Forest</button>
+      <button id="btn-how" class="btn btn-ghost">How it works</button>
+    </div>
+  </section>
+
+  <!-- ====================== HOW-TO MODAL ====================== -->
+  <div id="modal-how" class="modal-overlay">
+    <div class="modal">
+      <h2>How the game works</h2>
+      <div class="how-grid">
+        <div>
+          <h3>🏛️ Phase 1 — Command &amp; Control (R1–3)</h3>
+          <p>A distant state ban. <strong>Guard → +0 cash</strong> (you starve). <strong>Poach → +20 cash</strong>, but <strong>3 trees</strong> vanish from the shared forest. Fear of being the last honest villager drives a cascade of defection.</p>
+        </div>
+        <div>
+          <h3>🤝 Phase 2 — Pre-Funded Escrow (R4–10)</h3>
+          <p>International buyers pre-pay into a state escrow. <strong>Guard → guaranteed wage</strong> from the escrow pool. But if <em>anyone</em> cheats, the DNA ledger flags it and the <strong>whole collective's payout is slashed next round.</strong> Police your neighbours.</p>
+        </div>
+        <div>
+          <h3>🚨 The CITES Stress Test (R6–8)</h3>
+          <p>An export freeze locks trade. No fresh cash enters escrow — only a draining emergency buffer (2 → 1 → 0 turns left). Meanwhile the smuggler's bribe <strong>escalates: 20 → 40 → 60 cash.</strong> This is where communities crack.</p>
+        </div>
+        <div>
+          <h3>🏆 Winning</h3>
+          <p>Survive all 10 rounds with the forest above zero. Your score rewards both <strong>personal cash</strong> and <strong>trees left standing</strong>. True mastery: get rich <em>and</em> keep the forest alive.</p>
+        </div>
+      </div>
+      <button class="btn btn-primary" data-close-modal>Got it</button>
+    </div>
+  </div>
+
+  <!-- ====================== MAIN GAME SCREEN ====================== -->
+  <section id="screen-game" class="screen">
+    <header class="topbar">
+      <div class="brand">🌲 <span>Seshachalam Guardian</span></div>
+      <div class="topstats">
+        <div class="stat">
+          <span class="stat-label">Round</span>
+          <span class="stat-value" id="hud-round">1 / 10</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Your Cash</span>
+          <span class="stat-value cash" id="hud-cash">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Forest</span>
+          <span class="stat-value forest" id="hud-forest">100</span>
+        </div>
+      </div>
+      <button id="btn-restart" class="btn btn-ghost btn-sm">Restart</button>
+    </header>
+
+    <div class="phase-banner" id="phase-banner">
+      <span id="phase-banner-text">Phase 1 · Command &amp; Control State Ban</span>
+    </div>
+
+    <main class="game-grid">
+      <!-- LEFT: forest visualization -->
+      <section class="panel forest-panel">
+        <div class="panel-head">
+          <h2>The Shared Forest</h2>
+          <span class="badge" id="forest-badge">100 trees standing</span>
+        </div>
+        <div class="forest-wrap">
+          <canvas id="forest-canvas" width="520" height="300"></canvas>
+          <div class="forest-meter">
+            <div class="forest-meter-fill" id="forest-meter-fill"></div>
+          </div>
+        </div>
+
+        <!-- CITES alert -->
+        <div class="cites-alert" id="cites-alert" hidden>
+          <div class="cites-head">🚨 CITES EXPORT FREEZE ACTIVE</div>
+          <div class="cites-body">
+            <div class="cites-item">
+              <span class="cites-num" id="cites-buffer">2</span>
+              <span class="cites-cap">turns of escrow buffer left</span>
+            </div>
+            <div class="cites-item">
+              <span class="cites-num danger" id="cites-bribe">20</span>
+              <span class="cites-cap">smuggler bribe this round</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: villages + decision -->
+      <section class="panel villages-panel">
+        <div class="panel-head">
+          <h2>The Five Villages</h2>
+          <span class="badge" id="escrow-badge">Escrow: dormant</span>
+        </div>
+        <div class="villages" id="villages"></div>
+      </section>
+    </main>
+
+    <!-- DECISION BAR -->
+    <section class="decision-bar" id="decision-bar">
+      <div class="smuggler">
+        <div class="smuggler-face">🕴️</div>
+        <div class="smuggler-text">
+          <strong>The Smuggler whispers…</strong>
+          <span id="smuggler-offer">"+20 cash to look the other way. Three trees, gone. Who'll know?"</span>
+        </div>
+      </div>
+      <div class="choices">
+        <button id="btn-guard" class="btn btn-guard">
+          🛡️ <span class="choice-main">Guard</span>
+          <span class="choice-sub" id="guard-sub">+0 cash</span>
+        </button>
+        <button id="btn-poach" class="btn btn-poach">
+          🪓 <span class="choice-main">Poach</span>
+          <span class="choice-sub" id="poach-sub">+20 cash · −3 trees</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- RESOLUTION OVERLAY -->
+    <div class="resolution" id="resolution" hidden>
+      <div class="resolution-card">
+        <h3 id="res-title">Round Results</h3>
+        <div class="res-log" id="res-log"></div>
+        <div class="res-summary" id="res-summary"></div>
+        <button id="btn-next" class="btn btn-primary btn-lg">Next Round →</button>
+      </div>
+    </div>
+
+    <!-- EVENT LOG -->
+    <section class="logbar">
+      <h3>Chronicle</h3>
+      <ul id="event-log"></ul>
+    </section>
+  </section>
+
+  <!-- ====================== GAME OVER SCREEN ====================== -->
+  <section id="screen-over" class="screen">
+    <div class="over-card" id="over-card">
+      <div class="over-emblem" id="over-emblem">🌲</div>
+      <h1 id="over-title">The Forest Endures</h1>
+      <p id="over-text" class="over-text"></p>
+      <div class="over-stats" id="over-stats"></div>
+      <div class="over-actions">
+        <button id="btn-playagain" class="btn btn-primary btn-lg">Play Again</button>
+      </div>
+    </div>
+  </section>
+
+  <script src="game.js"></script>
+</body>
+</html>
