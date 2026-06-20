@@ -852,18 +852,18 @@
     const card = $("over-card");
     card.classList.remove("win", "lose");
 
-    let title, text, emblem;
+    let title, text, emblem, won;
     if (!survived) {
-      card.classList.add("lose"); emblem = "🪵"; title = "Ecological Collapse";
+      won = false; card.classList.add("lose"); emblem = "🪵"; title = "Ecological Collapse";
       text = "The last red sandalwood fell. The smuggler moves on; the hills fall silent. Short-term cash could not buy back a dead forest — the tragedy of the commons, complete.";
     } else if (forest >= 70) {
-      card.classList.add("win"); emblem = "🌳🛡️"; title = "Guardian of the Hills";
+      won = true; card.classList.add("win"); emblem = "🌳🛡️"; title = "Guardian of the Hills";
       text = "You held the commons together through the CITES squeeze. The escrow and peer enforcement held where the state ban failed. This is Ostrom's lesson made real.";
     } else if (forest >= 35) {
-      card.classList.add("win"); emblem = "🌲"; title = "The Forest Endures";
+      won = true; card.classList.add("win"); emblem = "🌲"; title = "The Forest Endures";
       text = "Battered but standing. The community bent under the 60-cash squeeze yet avoided total collapse. A fragile, hard-won cooperation.";
     } else {
-      card.classList.add("lose"); emblem = "🍂"; title = "A Hollow Survival";
+      won = false; card.classList.add("lose"); emblem = "🍂"; title = "A Hollow Survival";
       text = "The forest technically survived the ten rounds, but barely. Another season of this and the commons would be gone. Cooperation frayed when the safety net disappeared.";
     }
 
@@ -872,16 +872,32 @@
     $("over-text").textContent = text;
 
     const cheatRounds = S.history.filter((h) => h.decisions[0].poach).length;
+    const treesFelled = S.history.reduce((a, h) => a + h.treesLost, 0);
     $("over-stats").innerHTML =
       statBox(player.cash, "Your Cash") +
       statBox(forest, "Trees Saved") +
       statBox(score, "Final Score") +
       statBox(cheatRounds + " / " + S.history.length, "Rounds You Poached") +
       statBox(richestVillage(), "Richest Village") +
-      statBox(S.history.reduce((a, h) => a + h.treesLost, 0), "Total Trees Felled");
+      statBox(treesFelled, "Total Trees Felled");
+
+    // result record (used for leaderboard + sharing)
+    const result = {
+      score, cash: player.cash, forest, title, emblem, won,
+      difficulty: S.diff.label, diffKey: S.diffKey,
+      cheatRounds, rounds: S.history.length, date: Date.now(),
+    };
+    S.lastResult = result;
+
+    const isBest = saveToLeaderboard(result);
+    $("over-badge").hidden = !isBest;
+    renderLeaderboard(result);
+    drawScoreCard(result);
+    $("share-hint").textContent = "";
 
     show("screen-over");
-    Sound.play(survived && card.classList.contains("win") ? "win" : "lose");
+    Sound.play(won ? "win" : "lose");
+    if (isBest) Sound.play("coin");
   }
 
   function statBox(val, lbl) {
@@ -891,6 +907,167 @@
     let best = S.villages[0];
     S.villages.forEach((v) => { if (v.cash > best.cash) best = v; });
     return best.isPlayer ? "You" : "V" + best.id;
+  }
+
+  /* ============================================================
+     LEADERBOARD (localStorage)
+     ============================================================ */
+  const LB_KEY = "sg_leaderboard_v1";
+  function loadLeaderboard() {
+    try { return JSON.parse(localStorage.getItem(LB_KEY)) || []; } catch (e) { return []; }
+  }
+  function saveToLeaderboard(result) {
+    let lb = loadLeaderboard();
+    const prevBest = lb.length ? Math.max.apply(null, lb.map((r) => r.score)) : -1;
+    lb.push(result);
+    lb.sort((a, b) => b.score - a.score);
+    lb = lb.slice(0, 8);
+    try { localStorage.setItem(LB_KEY, JSON.stringify(lb)); } catch (e) {}
+    return result.score > prevBest; // new personal best?
+  }
+  function renderLeaderboard(current) {
+    const lb = loadLeaderboard();
+    const ol = $("leaderboard-list");
+    ol.innerHTML = "";
+    if (!lb.length) {
+      ol.innerHTML = '<li class="lb-empty">No runs yet — finish a game to set a score.</li>';
+      return;
+    }
+    lb.forEach((r) => {
+      const li = document.createElement("li");
+      const isCur = current && r.date === current.date && r.score === current.score;
+      if (isCur) li.classList.add("is-current");
+      const dk = (r.diffKey || "normal");
+      li.innerHTML =
+        '<span class="lb-score">' + r.score + "</span>" +
+        '<span class="lb-diff ' + dk + '">' + (r.difficulty || "Normal") + "</span>" +
+        '<span class="lb-meta">' + (r.emblem || "🌲") + " " + r.forest + "🌲 · " + r.cash + "💰</span>";
+      ol.appendChild(li);
+    });
+  }
+
+  /* ============================================================
+     SHAREABLE SCORE CARD (canvas → PNG)
+     ============================================================ */
+  function drawScoreCard(r) {
+    const cv = $("scorecard-canvas");
+    const c = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+
+    // background
+    const g = c.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#0f2418"); g.addColorStop(0.55, "#13301f"); g.addColorStop(1, "#0a160f");
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    // glow
+    const glow = c.createRadialGradient(W * 0.82, 70, 10, W * 0.82, 70, 260);
+    glow.addColorStop(0, r.won ? "rgba(79,209,139,0.20)" : "rgba(231,184,92,0.16)");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = glow; c.fillRect(0, 0, W, H);
+    // border
+    c.strokeStyle = "rgba(120,200,150,0.25)"; c.lineWidth = 3;
+    c.strokeRect(10, 10, W - 20, H - 20);
+
+    c.textBaseline = "alphabetic";
+    // header
+    c.fillStyle = "#9fb8ab"; c.font = "600 22px Inter, sans-serif"; c.textAlign = "left";
+    c.fillText("🌲 SESHACHALAM GUARDIAN", 44, 60);
+    c.fillStyle = "rgba(231,184,92,0.85)"; c.font = "700 16px Inter, sans-serif";
+    c.fillText(("· " + (r.difficulty || "Normal") + " mode").toUpperCase(), 44, 88);
+
+    // verdict
+    c.fillStyle = r.won ? "#4fd18b" : "#ff8a80";
+    c.font = "800 46px Georgia, 'Cinzel', serif";
+    c.fillText(r.title, 44, 152);
+
+    // big score
+    c.fillStyle = "#f2d79b"; c.font = "800 92px Inter, sans-serif";
+    c.fillText(String(r.score), 44, 252);
+    c.fillStyle = "#7c958a"; c.font = "600 20px Inter, sans-serif";
+    c.fillText("FINAL SCORE", 48, 284);
+
+    // stat chips
+    const chips = [
+      ["🌲 Trees saved", r.forest + " / 100"],
+      ["💰 Your cash", String(r.cash)],
+      ["🪓 Rounds poached", r.cheatRounds + " / " + r.rounds],
+    ];
+    let cx = 44, cy = 322;
+    const chipW = (W - 88 - 24) / 3;
+    chips.forEach((ch, i) => {
+      const x = cx + i * (chipW + 12);
+      c.fillStyle = "rgba(0,0,0,0.3)";
+      roundRect(c, x, cy, chipW, 64, 12); c.fill();
+      c.fillStyle = "#9fb8ab"; c.font = "600 14px Inter, sans-serif"; c.textAlign = "left";
+      c.fillText(ch[0], x + 14, cy + 26);
+      c.fillStyle = "#e7f3ec"; c.font = "800 24px Inter, sans-serif";
+      c.fillText(ch[1], x + 14, cy + 52);
+    });
+
+    // footer
+    c.fillStyle = "#5d7468"; c.font = "500 15px Inter, sans-serif";
+    c.fillText("Can you keep the commons alive?", 44, H - 28);
+    c.font = "60px serif"; c.textAlign = "right";
+    c.fillText(r.emblem.replace(/🛡️/, ""), W - 40, 150);
+  }
+  function roundRect(c, x, y, w, h, rad) {
+    c.beginPath();
+    c.moveTo(x + rad, y);
+    c.arcTo(x + w, y, x + w, y + h, rad);
+    c.arcTo(x + w, y + h, x, y + h, rad);
+    c.arcTo(x, y + h, x, y, rad);
+    c.arcTo(x, y, x + w, y, rad);
+    c.closePath();
+  }
+
+  function shareText(r) {
+    return (
+      "🌲 Seshachalam Guardian — " + r.title + " (" + (r.difficulty || "Normal") + ")\n" +
+      "Score " + r.score + " · " + r.forest + "/100 trees saved · " + r.cash + " cash\n" +
+      "Can you keep the commons alive?"
+    );
+  }
+  function downloadCard() {
+    const cv = $("scorecard-canvas");
+    cv.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "seshachalam-guardian-score.png";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      flashHint("Score card downloaded ✓");
+    }, "image/png");
+  }
+  async function copyResult() {
+    if (!S || !S.lastResult) return;
+    const txt = shareText(S.lastResult);
+    try {
+      await navigator.clipboard.writeText(txt);
+      flashHint("Result copied to clipboard ✓");
+    } catch (e) {
+      flashHint("Copy failed — select the text manually");
+    }
+  }
+  async function shareResult() {
+    if (!S || !S.lastResult) return;
+    const r = S.lastResult;
+    const cv = $("scorecard-canvas");
+    cv.toBlob(async (blob) => {
+      const file = new File([blob], "seshachalam-guardian-score.png", { type: "image/png" });
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], text: shareText(r), title: "Seshachalam Guardian" });
+        } else {
+          await navigator.share({ text: shareText(r), title: "Seshachalam Guardian" });
+        }
+      } catch (e) { /* user cancelled */ }
+    }, "image/png");
+  }
+  let hintTimer;
+  function flashHint(msg) {
+    const el = $("share-hint");
+    el.textContent = msg; el.style.opacity = "1";
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { el.style.opacity = "0"; }, 2400);
   }
 
   /* ---------------- Wiring ---------------- */
@@ -923,6 +1100,23 @@
     }
     refreshSound();
     sbtn.addEventListener("click", () => { Sound.toggle(); refreshSound(); if (!Sound.isMuted()) Sound.play("click"); });
+
+    // score card share + leaderboard
+    $("btn-download").addEventListener("click", () => { Sound.play("click"); downloadCard(); });
+    $("btn-copy").addEventListener("click", () => { Sound.play("click"); copyResult(); });
+    $("btn-clear-lb").addEventListener("click", () => {
+      if (confirm("Clear all saved scores from this browser?")) {
+        try { localStorage.removeItem(LB_KEY); } catch (e) {}
+        renderLeaderboard(S && S.lastResult);
+        flashHint("Leaderboard cleared");
+      }
+    });
+    // native share only where supported
+    if (navigator.share) {
+      const shb = $("btn-share");
+      shb.hidden = false;
+      shb.addEventListener("click", () => { Sound.play("click"); shareResult(); });
+    }
 
     // click anywhere during a reveal to fast-forward it (but not the click that starts the round)
     document.addEventListener("click", (e) => {

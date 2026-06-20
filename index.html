@@ -196,6 +196,29 @@
       <h1 id="over-title">The Forest Endures</h1>
       <p id="over-text" class="over-text"></p>
       <div class="over-stats" id="over-stats"></div>
+
+      <div class="over-badge" id="over-badge" hidden>🏆 New personal best!</div>
+
+      <!-- shareable score card -->
+      <div class="share-block">
+        <canvas id="scorecard-canvas" width="800" height="418"></canvas>
+        <div class="share-actions">
+          <button id="btn-download" class="btn btn-ghost">⬇️ Download card</button>
+          <button id="btn-copy" class="btn btn-ghost">📋 Copy result</button>
+          <button id="btn-share" class="btn btn-ghost" hidden>📤 Share</button>
+        </div>
+        <div class="share-hint" id="share-hint"></div>
+      </div>
+
+      <!-- local leaderboard -->
+      <div class="leaderboard">
+        <div class="lb-head">
+          <h3>🏅 Top Runs (this browser)</h3>
+          <button id="btn-clear-lb" class="btn-link">clear</button>
+        </div>
+        <ol id="leaderboard-list" class="lb-list"></ol>
+      </div>
+
       <div class="over-actions">
         <button id="btn-playagain" class="btn btn-primary btn-lg">Play Again</button>
       </div>

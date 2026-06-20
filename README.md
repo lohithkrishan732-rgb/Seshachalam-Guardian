@@ -29,6 +29,10 @@ aggressively the AI villages poach and how generous the escrow wage / penalties 
 **Sound:** fully synthesized via the Web Audio API (no audio files) — tree-falls, cash chimes, a
 crisis alarm, and win/lose stingers. Toggle with the 🔊 button or press **M**.
 
+**Share & compete:** every finished run produces a downloadable **score card** (PNG) and a
+one-click **Copy result** text summary. Your best runs are kept in a **local leaderboard**
+(saved in your browser via `localStorage`), tagged by difficulty.
+
 **Controls:** click **Guard** / **Poach**, or press **G** / **P**. Press **Enter** to advance.
 Click anywhere (or press any key) during a reveal to fast-forward it.
 
