@@ -300,20 +300,26 @@
     syncForestVisual(true);
   }
 
-  // recompute which trees should stand; trigger fall animations for the newly felled
+  // recompute which trees should stand; animate fells and regrowth
   function syncForestVisual(instant) {
     const n = S.trees.length;
     const aliveTarget = Math.round((Math.max(0, S.forest) / CONFIG.START_FOREST) * n);
     S.trees.forEach((t) => {
       const shouldStand = t.slot.fellRank < aliveTarget;
       if (!shouldStand && t.alive && !t.falling && !t.gone) {
+        // felling
         if (instant) { t.alive = false; t.gone = true; }
         else {
           t.falling = true;
           spawnLeaves(t.slot.x, t.slot.y - 24 * t.slot.scale, 6);
         }
-      } else if (shouldStand && (t.gone || !t.alive) && instant) {
-        t.alive = true; t.falling = false; t.fallT = 0; t.gone = false;
+      } else if (shouldStand && (t.gone || !t.alive) && !t.falling) {
+        // regrowth
+        if (instant) { t.alive = true; t.gone = false; t.fallT = 0; t.sprouting = false; t.growT = 1; }
+        else {
+          t.alive = true; t.gone = false; t.fallT = 0; t.sprouting = true; t.growT = 0;
+          spawnSprout(t.slot.x, t.slot.y, 5);
+        }
       }
     });
   }
@@ -330,6 +336,11 @@
       });
     }
   }
+  /* ----- environment systems: wind, parallax, lightning ----- */
+  let wind = { t: 0, gust: 0 };          // gust strength oscillates over time
+  let pointer = { x: 0, y: 0, tx: 0, ty: 0 }; // parallax (eased)
+  let lightning = 0;                      // 0..1 flash intensity, decays
+
   function spawnEmber() {
     S.particles.push({
       type: "ember", x: Math.random() * CW, y: CH + 6,
@@ -346,21 +357,60 @@
       phase: Math.random() * 6.28,
     });
   }
+  function spawnRain() {
+    const fromLeft = Math.random() < 0.5;
+    S.particles.push({
+      type: "rain", x: Math.random() * (CW + 80) - 40, y: -10,
+      vx: 60 + Math.random() * 40, vy: 420 + Math.random() * 160,
+      life: 0, maxLife: 0.9, len: 10 + Math.random() * 10,
+    });
+  }
+  function spawnBird() {
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    S.particles.push({
+      type: "bird", dir, x: dir > 0 ? -20 : CW + 20, y: 35 + Math.random() * 55,
+      vx: dir * (45 + Math.random() * 30), vy: (Math.random() - 0.5) * 6,
+      life: 0, maxLife: 9, size: 5 + Math.random() * 3, phase: Math.random() * 6.28,
+    });
+  }
+  function spawnSprout(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      S.particles.push({
+        type: "sprout", x: x + (Math.random() - 0.5) * 16, y,
+        vx: (Math.random() - 0.5) * 14, vy: -(20 + Math.random() * 28),
+        life: 0, maxLife: 1.1 + Math.random() * 0.5, size: 2 + Math.random() * 2,
+        color: "#7fe6a0",
+      });
+    }
+  }
 
   function updateParticles(dt, inCites) {
-    // ambient spawns
-    if (inCites) { if (Math.random() < dt * 14) spawnEmber(); }
-    else { if (Math.random() < dt * 2.2 && S.particles.filter(p => p.type === "fly").length < 14) spawnFirefly(); }
+    // ambient spawns by phase
+    if (inCites) {
+      if (Math.random() < dt * 16) spawnEmber();
+      for (let r = 0; r < 3; r++) if (Math.random() < dt * 22) spawnRain();
+    } else {
+      if (Math.random() < dt * 2.2 && S.particles.filter((p) => p.type === "fly").length < 14) spawnFirefly();
+      if (Math.random() < dt * 0.18 && !S.particles.some((p) => p.type === "bird")) spawnBird();
+    }
 
     for (let i = S.particles.length - 1; i >= 0; i--) {
       const p = S.particles[i];
       p.life += dt;
       if (p.type === "leaf") {
-        p.vy += 30 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vrot * dt;
+        p.vy += 30 * dt; p.x += (p.vx + wind.gust * 30) * dt; p.y += p.vy * dt; p.rot += p.vrot * dt;
         p.vx *= 0.98;
       } else if (p.type === "ember") {
-        p.x += p.vx * dt; p.y += p.vy * dt; p.vy *= 0.995;
-      } else {
+        p.x += (p.vx + wind.gust * 20) * dt; p.y += p.vy * dt; p.vy *= 0.995;
+      } else if (p.type === "rain") {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        if (p.y > CH) p.life = p.maxLife;
+      } else if (p.type === "bird") {
+        p.phase += dt * 8; p.x += p.vx * dt; p.y += p.vy * dt + Math.sin(p.phase) * 4 * dt;
+        if (p.x < -40 || p.x > CW + 40) p.life = p.maxLife;
+      } else if (p.type === "sprout") {
+        p.vy += 26 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      } else { // firefly
         p.phase += dt * 3;
         p.x += p.vx * dt + Math.sin(p.phase) * 6 * dt;
         p.y += p.vy * dt + Math.cos(p.phase * 0.7) * 5 * dt;
@@ -373,22 +423,27 @@
 
   function drawTreeShape(c, t, now) {
     const s = t.slot;
-    const sway = Math.sin(now * 0.001 * s.swaySpeed + s.swayPhase) * 0.05;
+    // sway = gentle idle + global wind gust (foreground sways more)
+    const depthF = 0.4 + (s.depth / 8) * 0.9;
+    const sway = Math.sin(now * 0.001 * s.swaySpeed + s.swayPhase) * 0.05 + wind.gust * 0.16 * depthF;
+    // parallax shift (foreground moves more)
+    const px = pointer.x * 14 * depthF;
+    const py = pointer.y * 7 * depthF;
     const scale = s.scale;
-    const h = 34 * scale, w = 16 * scale;
+    const grow = t.sprouting ? clamp(t.growT, 0, 1) : 1;
+    const h = 34 * scale * grow, w = 16 * scale * grow;
 
     if (t.gone) {
-      // stump
       c.fillStyle = "rgba(120,70,45,0.5)";
-      c.fillRect(s.x - 3 * scale, s.y - 2, 6 * scale, 8 * scale);
+      c.fillRect(s.x + px - 3 * scale, s.y - 2, 6 * scale, 8 * scale);
       return;
     }
 
     c.save();
-    c.translate(s.x, s.y + 10 * scale);
+    c.translate(s.x + px, s.y + 10 * scale + py);
     if (t.falling) {
       const tt = clamp(t.fallT, 0, 1);
-      c.rotate(tt * 1.35 * (s.fellRank % 2 ? 1 : -1)); // topple sideways
+      c.rotate(tt * 1.35 * (s.fellRank % 2 ? 1 : -1));
       c.globalAlpha = 1 - tt * 0.9;
     } else {
       c.rotate(sway);
@@ -397,7 +452,7 @@
 
     // trunk
     c.fillStyle = "#5b3a22";
-    c.fillRect(-2 * scale, 0, 4 * scale, 10 * scale);
+    c.fillRect(-2 * scale, 0, 4 * scale, 10 * scale * grow);
     // canopy
     const grad = c.createLinearGradient(0, -h, 0, 0);
     grad.addColorStop(0, "#46bd7e");
@@ -412,50 +467,73 @@
     const c = ctx2d;
     const ctxR = roundContext(S);
     const inCites = ctxR.inCites;
+    const phase = ctxR.phase;
 
-    // advance falling trees
+    // advance falling + sprouting trees
     S.trees.forEach((t) => {
       if (t.falling) {
         t.fallT += dt * 1.6;
         if (t.fallT >= 1) { t.falling = false; t.gone = true; t.alive = false; }
       }
+      if (t.sprouting) {
+        t.growT += dt * 1.4;
+        if (t.growT >= 1) { t.sprouting = false; t.growT = 1; }
+      }
     });
     updateParticles(dt, inCites);
 
-    // sky / ground
+    // ---- sky palette by phase ----
     c.clearRect(0, 0, CW, CH);
     const g = c.createLinearGradient(0, 0, 0, CH);
-    if (inCites) { g.addColorStop(0, "#2a160f"); g.addColorStop(1, "#160a08"); }
-    else { g.addColorStop(0, "#13301f"); g.addColorStop(1, "#0a160f"); }
+    if (phase === "cites") { g.addColorStop(0, "#2a160f"); g.addColorStop(0.6, "#1c0e0a"); g.addColorStop(1, "#120705"); }
+    else if (phase === "escrow") { g.addColorStop(0, "#194636"); g.addColorStop(0.6, "#103325"); g.addColorStop(1, "#0a1a12"); }
+    else { g.addColorStop(0, "#15352a"); g.addColorStop(0.6, "#102a1f"); g.addColorStop(1, "#0a160f"); }
     c.fillStyle = g; c.fillRect(0, 0, CW, CH);
 
-    // drifting mist band
-    const mistY = 50 + Math.sin(now * 0.0004) * 8;
-    c.fillStyle = inCites ? "rgba(200,90,60,0.06)" : "rgba(120,200,150,0.05)";
-    c.fillRect(0, mistY, CW, 70);
+    // lightning flash fill (crisis)
+    if (lightning > 0.01) {
+      c.fillStyle = "rgba(255,240,225," + (lightning * 0.5).toFixed(3) + ")";
+      c.fillRect(0, 0, CW, CH);
+    }
 
-    // moon / haze glow
+    // sun/moon glow
     c.save();
-    const glow = c.createRadialGradient(CW * 0.8, 50, 5, CW * 0.8, 50, 120);
-    glow.addColorStop(0, inCites ? "rgba(255,120,80,0.16)" : "rgba(180,230,200,0.12)");
+    const gx = phase === "escrow" ? CW * 0.78 : CW * 0.8;
+    const glow = c.createRadialGradient(gx, 56, 6, gx, 56, 150);
+    if (phase === "cites") { glow.addColorStop(0, "rgba(255,120,80,0.20)"); }
+    else if (phase === "escrow") { glow.addColorStop(0, "rgba(255,225,150,0.20)"); }
+    else { glow.addColorStop(0, "rgba(180,230,200,0.13)"); }
     glow.addColorStop(1, "rgba(0,0,0,0)");
     c.fillStyle = glow; c.fillRect(0, 0, CW, CH);
     c.restore();
 
-    // trees (already in back-to-front order)
+    // drifting mist band
+    const mistY = 48 + Math.sin(now * 0.0004) * 8;
+    c.fillStyle = phase === "cites" ? "rgba(200,90,60,0.06)" : phase === "escrow" ? "rgba(180,230,150,0.06)" : "rgba(120,200,150,0.05)";
+    c.fillRect(0, mistY, CW, 70);
+
+    // birds behind trees
+    S.particles.forEach((p) => { if (p.type === "bird") drawBird(c, p); });
+
+    // trees (back-to-front)
     S.trees.forEach((t) => drawTreeShape(c, t, now));
 
-    // particles
+    // foreground particles
     S.particles.forEach((p) => {
       const k = 1 - p.life / p.maxLife;
-      if (p.type === "leaf") {
-        c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.globalAlpha = clamp(k, 0, 1);
+      if (p.type === "leaf" || p.type === "sprout") {
+        c.save(); c.translate(p.x, p.y); if (p.rot) c.rotate(p.rot); c.globalAlpha = clamp(k, 0, 1);
         c.fillStyle = p.color; c.beginPath();
         c.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, 6.28); c.fill(); c.restore();
       } else if (p.type === "ember") {
         c.globalAlpha = clamp(k, 0, 1); c.fillStyle = p.color;
         c.beginPath(); c.arc(p.x, p.y, p.size, 0, 6.28); c.fill(); c.globalAlpha = 1;
-      } else {
+      } else if (p.type === "rain") {
+        c.globalAlpha = 0.34; c.strokeStyle = "#9fc4e8"; c.lineWidth = 1.3;
+        const a = Math.atan2(p.vy, p.vx);
+        c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - Math.cos(a) * p.len, p.y - Math.sin(a) * p.len); c.stroke();
+        c.globalAlpha = 1;
+      } else if (p.type === "fly") {
         const tw = 0.5 + 0.5 * Math.sin(p.phase * 2);
         c.globalAlpha = clamp(k, 0, 1) * tw * 0.9; c.fillStyle = "#d7ff9e";
         c.beginPath(); c.arc(p.x, p.y, p.size, 0, 6.28); c.fill();
@@ -463,6 +541,9 @@
         c.beginPath(); c.arc(p.x, p.y, p.size * 3, 0, 6.28); c.fill(); c.globalAlpha = 1;
       }
     });
+
+    // lightning bolt
+    if (lightning > 0.5) drawBolt(c);
 
     // collapse overlay
     if (S.forest <= 0) {
@@ -472,16 +553,51 @@
     }
   }
 
+  function drawBird(c, p) {
+    const flap = Math.sin(p.phase) * 5;
+    c.strokeStyle = "rgba(20,30,24,0.6)"; c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(p.x - p.size, p.y + flap);
+    c.lineTo(p.x, p.y);
+    c.lineTo(p.x + p.size, p.y + flap);
+    c.stroke();
+  }
+  function drawBolt(c) {
+    c.save();
+    c.globalAlpha = clamp((lightning - 0.5) * 2, 0, 1);
+    c.strokeStyle = "rgba(255,250,235,0.9)"; c.lineWidth = 2.5;
+    c.shadowColor = "rgba(200,220,255,0.9)"; c.shadowBlur = 12;
+    let x = CW * (0.3 + Math.random() * 0.4), y = 0;
+    c.beginPath(); c.moveTo(x, y);
+    while (y < CH * 0.6) { y += 18 + Math.random() * 22; x += (Math.random() - 0.5) * 40; c.lineTo(x, y); }
+    c.stroke(); c.restore();
+  }
+
   let lastT = 0;
   function loop(now) {
-    if (!S) { requestAnimationFrame(loop); return; }
     const dt = Math.min(0.05, (now - lastT) / 1000 || 0);
     lastT = now;
-    if ($("screen-game").classList.contains("active") && S.trees.length) {
-      // smooth HUD forest number + meter
+
+    const gameActive = S && $("screen-game").classList.contains("active") && S.trees.length;
+
+    if (S) {
+      // wind: slow oscillation + occasional gust
+      wind.t += dt;
+      const base = Math.sin(wind.t * 0.6) * 0.3 + Math.sin(wind.t * 1.7) * 0.15;
+      const inCites = S.trees.length && roundContext(S).inCites;
+      wind.gust = base * (inCites ? 2.2 : 1);
+      pointer.x += (pointer.tx - pointer.x) * Math.min(1, dt * 5);
+      pointer.y += (pointer.ty - pointer.y) * Math.min(1, dt * 5);
+      if (inCites && lightning <= 0 && Math.random() < dt * 0.5) lightning = 1;
+      if (lightning > 0) lightning = Math.max(0, lightning - dt * 3.2);
+    }
+
+    if (gameActive) {
       S.forestVisual = lerp(S.forestVisual, Math.max(0, S.forest), 1 - Math.pow(0.001, dt));
       updateForestHud();
       drawScene(now, dt);
+    } else if (ambient.active) {
+      drawAmbient(now, dt);
     }
     requestAnimationFrame(loop);
   }
@@ -496,6 +612,107 @@
     if (pct <= 20) fill.style.background = "linear-gradient(90deg,#8c2f28,#ef5350)";
     else if (pct <= 45) fill.style.background = "linear-gradient(90deg,#9a6a1e,#e7b85c)";
     else fill.style.background = "linear-gradient(90deg,#1f7a4d,#4fd18b)";
+  }
+
+  /* ============================================================
+     AMBIENT BACKGROUND — animated canvas behind intro / end screens
+     ============================================================ */
+  const ambient = { active: false, mode: "calm", canvas: null, c: null, parts: [], t: 0 };
+  function ensureAmbient() {
+    if (ambient.canvas) return;
+    const cv = document.createElement("canvas");
+    cv.id = "ambient-canvas";
+    document.body.insertBefore(cv, document.body.firstChild);
+    ambient.canvas = cv; ambient.c = cv.getContext("2d");
+    sizeAmbient();
+    window.addEventListener("resize", sizeAmbient);
+  }
+  function sizeAmbient() {
+    if (!ambient.canvas) return;
+    ambient.canvas.width = window.innerWidth;
+    ambient.canvas.height = window.innerHeight;
+  }
+  function setAmbient(mode) {
+    ensureAmbient();
+    ambient.mode = mode; ambient.active = true; ambient.parts = [];
+    const W = ambient.canvas.width;
+    if (mode === "calm") {
+      for (let i = 0; i < 26; i++) ambient.parts.push(ambientLeaf(true));
+    }
+  }
+  function stopAmbient() {
+    ambient.active = false;
+    if (ambient.c) ambient.c.clearRect(0, 0, ambient.canvas.width, ambient.canvas.height);
+  }
+  function ambientLeaf(seed) {
+    const W = ambient.canvas.width, H = ambient.canvas.height;
+    return {
+      type: Math.random() < 0.4 ? "fly" : "leaf",
+      x: Math.random() * W, y: seed ? Math.random() * H : -20,
+      vx: (Math.random() - 0.5) * 26, vy: 14 + Math.random() * 26,
+      rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 2,
+      size: 4 + Math.random() * 5, phase: Math.random() * 6.28,
+      color: Math.random() < 0.5 ? "#3f9e63" : "#c47a3a",
+    };
+  }
+  function confettiBit() {
+    const W = ambient.canvas.width;
+    const cols = ["#e7b85c", "#4fd18b", "#f2d79b", "#7fe6a0", "#ffae5a"];
+    return {
+      type: "confetti", x: Math.random() * W, y: -20,
+      vx: (Math.random() - 0.5) * 80, vy: 90 + Math.random() * 120,
+      rot: Math.random() * 6.28, vrot: (Math.random() - 0.5) * 10,
+      w: 6 + Math.random() * 6, h: 3 + Math.random() * 4,
+      color: cols[(Math.random() * cols.length) | 0],
+    };
+  }
+  function ashBit() {
+    const W = ambient.canvas.width;
+    return {
+      type: "ash", x: Math.random() * W, y: -20,
+      vx: (Math.random() - 0.5) * 16, vy: 26 + Math.random() * 40,
+      rot: 0, vrot: 0, size: 1.5 + Math.random() * 2.5,
+      color: Math.random() < 0.5 ? "rgba(150,150,150,0.6)" : "rgba(90,70,60,0.6)",
+    };
+  }
+  function drawAmbient(now, dt) {
+    const c = ambient.c, cv = ambient.canvas;
+    if (!c) return;
+    const W = cv.width, H = cv.height;
+    c.clearRect(0, 0, W, H);
+    ambient.t += dt;
+
+    // spawn by mode
+    if (ambient.mode === "calm") {
+      if (ambient.parts.length < 30 && Math.random() < dt * 6) ambient.parts.push(ambientLeaf(false));
+    } else if (ambient.mode === "win") {
+      if (ambient.parts.length < 160 && ambient.t < 3.5) for (let i = 0; i < 3; i++) ambient.parts.push(confettiBit());
+    } else if (ambient.mode === "lose") {
+      if (ambient.parts.length < 80) if (Math.random() < dt * 30) ambient.parts.push(ashBit());
+    }
+
+    for (let i = ambient.parts.length - 1; i >= 0; i--) {
+      const p = ambient.parts[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.rot += (p.vrot || 0) * dt;
+      if (p.type === "confetti") p.vy += 40 * dt;
+      if (p.type === "fly") { p.phase += dt * 3; p.x += Math.sin(p.phase) * 8 * dt; }
+      if (p.y > H + 30) { ambient.parts.splice(i, 1); continue; }
+
+      if (p.type === "confetti") {
+        c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.fillStyle = p.color;
+        c.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); c.restore();
+      } else if (p.type === "ash") {
+        c.fillStyle = p.color; c.beginPath(); c.arc(p.x, p.y, p.size, 0, 6.28); c.fill();
+      } else if (p.type === "fly") {
+        const tw = 0.5 + 0.5 * Math.sin(p.phase * 2);
+        c.globalAlpha = tw * 0.6; c.fillStyle = "#d7ff9e";
+        c.beginPath(); c.arc(p.x, p.y, p.size * 0.5, 0, 6.28); c.fill(); c.globalAlpha = 1;
+      } else {
+        c.save(); c.translate(p.x, p.y); c.rotate(p.rot); c.globalAlpha = 0.5;
+        c.fillStyle = p.color; c.beginPath(); c.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, 6.28); c.fill();
+        c.restore(); c.globalAlpha = 1;
+      }
+    }
   }
 
   /* ============================================================
@@ -706,7 +923,8 @@
 
       el.classList.remove("deciding");
       el.classList.add("just-revealed");
-      setTimeout(() => el && el.classList.remove("just-revealed"), 420);
+      el.classList.add(d.poach ? "react-poach" : "react-guard");
+      setTimeout(() => el && el.classList.remove("just-revealed", "react-poach", "react-guard"), 600);
 
       if (d.poach) {
         setVillageStatus(el, "🪓 Poached", "poach");
@@ -754,7 +972,17 @@
     }
     S.lastRoundCheaters = cheaters;
 
-    const record = { round: S.round, ctxR, decisions, cheaters, treesLost, bufferNote };
+    // REGROWTH: a fully-cooperating village in a calm escrow round lets the forest recover
+    let regrew = 0;
+    if (ctxR.escrowActive && !ctxR.inCites && cheaters === 0 && S.forest < CONFIG.START_FOREST) {
+      regrew = Math.min(2, CONFIG.START_FOREST - S.forest);
+      S.forest += regrew;
+      syncForestVisual(false);
+      floatOverCanvas("+" + regrew + " 🌱", "wage");
+      Sound.play("wage");
+    }
+
+    const record = { round: S.round, ctxR, decisions, cheaters, treesLost, regrew, bufferNote };
     S.history.push(record);
     addLogLine(record);
 
@@ -794,6 +1022,7 @@
       } else html += "Clean ledger — full escrow wage restored next round. ";
     }
     if (bufferNote) html += '<br><span class="neg">⚠️ ' + bufferNote + "</span>";
+    if (record.regrew > 0) html += '<br><span class="pos">🌱 Total cooperation — the forest regrew +' + record.regrew + " trees.</span>";
     if (S.forest <= 0) html += '<br><span class="neg">The forest is gone.</span>';
     $("res-summary").innerHTML = html;
 
@@ -817,6 +1046,7 @@
     S = freshState();
     $("event-log").innerHTML = "";
     if (fxLayer) fxLayer.innerHTML = "";
+    stopAmbient();
     initTrees();
     S.forestVisual = CONFIG.START_FOREST;
     // difficulty pill
@@ -896,6 +1126,7 @@
     $("share-hint").textContent = "";
 
     show("screen-over");
+    setAmbient(won ? "win" : "lose");
     Sound.play(won ? "win" : "lose");
     if (isBest) Sound.play("coin");
   }
@@ -1144,7 +1375,17 @@
       }
     });
 
+    // parallax: forest reacts to pointer
+    const fc = $("forest-canvas");
+    fc.addEventListener("mousemove", (e) => {
+      const r = fc.getBoundingClientRect();
+      pointer.tx = clamp(((e.clientX - r.left) / r.width - 0.5) * 2, -1, 1);
+      pointer.ty = clamp(((e.clientY - r.top) / r.height - 0.5) * 2, -1, 1);
+    });
+    fc.addEventListener("mouseleave", () => { pointer.tx = 0; pointer.ty = 0; });
+
     show("screen-intro");
+    setAmbient("calm");
     requestAnimationFrame(loop);
   }
 
