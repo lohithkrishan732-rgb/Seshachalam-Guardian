@@ -358,3 +358,86 @@ h1, h2, h3 { margin: 0; }
   .topbar { flex-wrap: wrap; }
   .btn-guard, .btn-poach { flex: 1; min-width: 0; }
 }
+
+
+/* ============================================================
+   DYNAMIC EDITION — floating numbers, toasts, shake, reveals
+   ============================================================ */
+
+/* floating combat-text numbers */
+.fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 60; overflow: hidden; }
+.float-num {
+  position: absolute; transform: translate(-50%, -50%);
+  font-weight: 800; font-size: 19px; white-space: nowrap;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  animation: floatUp 1.25s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.float-num.cash { color: var(--gold-soft); }
+.float-num.wage { color: var(--green); }
+.float-num.tree { color: var(--danger-soft); font-size: 17px; }
+.float-num.muted { color: var(--muted); font-size: 15px; }
+@keyframes floatUp {
+  0%   { opacity: 0; transform: translate(-50%, -20%) scale(0.7); }
+  15%  { opacity: 1; transform: translate(-50%, -60%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -210%) scale(1); }
+}
+
+/* phase / event toast */
+.phase-toast {
+  position: fixed; top: 22%; left: 50%;
+  transform: translate(-50%, -20px) scale(0.92);
+  z-index: 70; pointer-events: none; text-align: center;
+  background: linear-gradient(135deg, rgba(20, 40, 31, 0.96), rgba(12, 24, 18, 0.96));
+  border: 1px solid var(--panel-line); border-radius: 16px;
+  padding: 18px 30px; box-shadow: var(--shadow); opacity: 0;
+  transition: opacity 0.35s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  max-width: 90vw;
+}
+.phase-toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.phase-toast .pt-title { font-family: "Cinzel", serif; font-size: 24px; font-weight: 800; margin-bottom: 4px; color: var(--gold-soft); }
+.phase-toast .pt-sub { font-size: 14px; color: var(--ink-dim); }
+.phase-toast.crisis { border-color: rgba(239, 83, 80, 0.55); }
+.phase-toast.crisis .pt-title { color: var(--danger-soft); }
+.phase-toast.escrow .pt-title { color: var(--gold-soft); }
+
+/* HUD cash bump on gain */
+.stat-value.bump { animation: bump 0.35s ease; }
+@keyframes bump { 0% { transform: scale(1); } 45% { transform: scale(1.35); color: #fff; } 100% { transform: scale(1); } }
+
+/* village "deciding" suspense state */
+.village.deciding { animation: decidePulse 0.9s ease-in-out infinite; }
+.village.deciding .v-status { background: rgba(231, 184, 92, 0.12); color: var(--gold-soft); }
+@keyframes decidePulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05); }
+  50% { box-shadow: inset 0 0 0 1px rgba(231, 184, 92, 0.5); transform: translateY(-1px); }
+}
+.dots::after { content: ""; animation: dots 1.1s steps(4, end) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } 100% { content: ""; } }
+
+/* village reveal pop */
+.village.just-revealed { animation: pop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes pop { 0% { transform: scale(0.92); } 55% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+/* screen shake on poaching */
+.shake-sm { animation: shakeSm 0.45s ease; }
+.shake-lg { animation: shakeLg 0.55s ease; }
+@keyframes shakeSm {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-3px, 2px); } 40% { transform: translate(3px, -2px); }
+  60% { transform: translate(-2px, 1px); } 80% { transform: translate(2px, -1px); }
+}
+@keyframes shakeLg {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-7px, 3px); } 30% { transform: translate(7px, -4px); }
+  45% { transform: translate(-6px, 2px); } 60% { transform: translate(6px, -3px); }
+  75% { transform: translate(-4px, 2px); } 90% { transform: translate(4px, -1px); }
+}
+
+/* smuggler reacts harder during the crisis */
+.phase-banner.crisis ~ .decision-bar .smuggler-face,
+.decision-bar .smuggler-face { will-change: transform; }
+
+@media (prefers-reduced-motion: reduce) {
+  .float-num, .phase-toast, .village.deciding, .village.just-revealed,
+  .shake-sm, .shake-lg, .stat-value.bump { animation: none !important; }
+}
