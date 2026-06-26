@@ -54,6 +54,7 @@
       </div>
 
       <button id="btn-start" class="btn btn-primary btn-lg">Enter the Forest</button>
+      <button id="btn-online" class="btn btn-ghost">🌐 Play Online (3 players)</button>
       <button id="btn-how" class="btn btn-ghost">How it works</button>
     </div>
   </section>
@@ -84,7 +85,7 @@
     </div>
   </div>
 
-  <!-- ====================== MAIN GAME SCREEN ====================== -->
+  <!-- ====================== MAIN GAME SCREEN (SINGLE PLAYER) ====================== -->
   <section id="screen-game" class="screen">
     <header class="topbar">
       <div class="brand">🌲 <span>Seshachalam Guardian</span></div>
@@ -189,7 +190,7 @@
     </section>
   </section>
 
-  <!-- ====================== GAME OVER SCREEN ====================== -->
+  <!-- ====================== GAME OVER SCREEN (SINGLE PLAYER) ====================== -->
   <section id="screen-over" class="screen">
     <div class="over-card" id="over-card">
       <div class="over-emblem" id="over-emblem">🌲</div>
@@ -225,6 +226,133 @@
     </div>
   </section>
 
+  <!-- ====================== MULTIPLAYER LOBBY ====================== -->
+  <section id="screen-mp-lobby" class="screen">
+    <div class="intro-card mp-card">
+      <div class="intro-emblem">🌐</div>
+      <h1 class="title" style="font-size:34px">Play Online</h1>
+      <p class="subtitle">2 villages + 1 smuggler · across cities, one shared forest</p>
+
+      <div id="mp-status" class="mp-status">Connecting…</div>
+
+      <!-- step 1: name + create/join -->
+      <div id="mp-entry" class="mp-entry">
+        <label class="mp-label">Your name
+          <input id="mp-name" class="mp-input" maxlength="14" placeholder="e.g. Asha" />
+        </label>
+        <div class="mp-entry-actions">
+          <button id="mp-create" class="btn btn-primary">Create room</button>
+          <span class="mp-or">or</span>
+          <div class="mp-join">
+            <input id="mp-code" class="mp-input mp-code-input" maxlength="4" placeholder="CODE" />
+            <button id="mp-join" class="btn btn-ghost">Join</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- step 2: room + roles -->
+      <div id="mp-room" class="mp-room" hidden>
+        <div class="mp-roomcode">Room code: <b id="mp-roomcode-val">----</b>
+          <button id="mp-copycode" class="btn-link">copy</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin:6px 0 14px">Share this code with your two co-players. Claim a role below.</p>
+        <div class="mp-roles" id="mp-roles">
+          <button class="mp-role" data-role="smuggler">
+            <span class="mp-role-emoji">🕴️</span><span class="mp-role-name">The Smuggler</span>
+            <span class="mp-role-desc">Tempt &amp; corrupt the villages. Break the commons.</span>
+            <span class="mp-role-who" data-who="smuggler">open</span>
+          </button>
+          <button class="mp-role" data-role="villageA">
+            <span class="mp-role-emoji">🏡</span><span class="mp-role-name">Village 1</span>
+            <span class="mp-role-desc">Guard or poach. Survive with the forest alive.</span>
+            <span class="mp-role-who" data-who="villageA">open</span>
+          </button>
+          <button class="mp-role" data-role="villageB">
+            <span class="mp-role-emoji">🏘️</span><span class="mp-role-name">Village 2</span>
+            <span class="mp-role-desc">Guard or poach. Trust your neighbour… or don't.</span>
+            <span class="mp-role-who" data-who="villageB">open</span>
+          </button>
+        </div>
+        <p class="muted" style="font-size:12px">Villages 3–5 are played by AI. The host starts the game.</p>
+        <button id="mp-start" class="btn btn-primary btn-lg" disabled>Start game</button>
+        <div id="mp-start-hint" class="muted" style="font-size:12px;margin-top:6px"></div>
+      </div>
+
+      <button id="mp-back" class="btn btn-ghost btn-sm" style="margin-top:14px">← Back</button>
+    </div>
+  </section>
+
+  <!-- ====================== MULTIPLAYER GAME ====================== -->
+  <section id="screen-mp-game" class="screen">
+    <header class="topbar">
+      <div class="brand">🌲 <span>Guardian · Online</span></div>
+      <div class="topstats">
+        <div class="stat"><span class="stat-label">Round</span><span class="stat-value" id="mp-round">1 / 10</span></div>
+        <div class="stat"><span class="stat-label">You are</span><span class="stat-value" id="mp-youare" style="font-size:14px">—</span></div>
+        <div class="stat"><span class="stat-label">Forest</span><span class="stat-value forest" id="mp-forest">100</span></div>
+      </div>
+      <button id="mp-leave" class="btn btn-ghost btn-sm">Leave</button>
+    </header>
+
+    <div class="phase-banner" id="mp-phase-banner"><span id="mp-phase-text">Phase 1 · State Ban</span></div>
+
+    <main class="game-grid">
+      <section class="panel forest-panel">
+        <div class="panel-head"><h2>The Shared Forest</h2><span class="badge" id="mp-forest-badge">100 trees</span></div>
+        <div class="forest-wrap">
+          <div class="forest-meter" style="margin-top:0"><div class="forest-meter-fill" id="mp-forest-fill"></div></div>
+        </div>
+        <div class="mp-econ">
+          <div class="mp-econ-item"><span class="mp-econ-lbl">Escrow wage</span><span class="mp-econ-val" id="mp-wage">—</span></div>
+          <div class="mp-econ-item"><span class="mp-econ-lbl">Detection risk</span><span class="mp-econ-val" id="mp-detect">—</span></div>
+          <div class="mp-econ-item"><span class="mp-econ-lbl">Timber price/tree</span><span class="mp-econ-val" id="mp-timber">—</span></div>
+        </div>
+        <div class="cites-alert" id="mp-cites" hidden>
+          <div class="cites-head">🚨 CITES EXPORT FREEZE</div>
+          <div class="cites-body">
+            <div class="cites-item"><span class="cites-num" id="mp-buffer">2</span><span class="cites-cap">escrow buffer left</span></div>
+            <div class="cites-item"><span class="cites-num danger" id="mp-bribe-shown">—</span><span class="cites-cap">bribe on the table</span></div>
+          </div>
+        </div>
+        <div class="mp-smug-stat" id="mp-smug-stat">
+          <span>🕴️ War chest: <b id="mp-warchest">—</b></span>
+          <span>📦 Smuggled value: <b id="mp-profit">—</b></span>
+        </div>
+      </section>
+
+      <section class="panel villages-panel">
+        <div class="panel-head"><h2>The Villages</h2><span class="badge" id="mp-turn-badge">—</span></div>
+        <div class="villages" id="mp-villages"></div>
+      </section>
+    </main>
+
+    <!-- action zone: changes by role + subphase -->
+    <section class="decision-bar" id="mp-action">
+      <div id="mp-action-inner" style="width:100%"></div>
+    </section>
+
+    <section class="logbar"><h3>Chronicle</h3><ul id="mp-log"></ul></section>
+  </section>
+
+  <!-- ====================== MULTIPLAYER OVER ====================== -->
+  <section id="screen-mp-over" class="screen">
+    <div class="over-card" id="mp-over-card">
+      <div class="over-emblem" id="mp-over-emblem">🌲</div>
+      <h1 id="mp-over-title">Results</h1>
+      <p id="mp-over-text" class="over-text"></p>
+      <div class="over-stats" id="mp-over-stats"></div>
+      <div class="over-actions">
+        <button id="mp-playagain" class="btn btn-primary btn-lg">Back to Lobby</button>
+        <button id="mp-home" class="btn btn-ghost">Main Menu</button>
+      </div>
+    </div>
+  </section>
+
   <script src="game.js"></script>
+  <!-- Firebase (compat) for online multiplayer -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="multiplayer.js"></script>
 </body>
 </html>
